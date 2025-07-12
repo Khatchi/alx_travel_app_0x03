@@ -1,6 +1,8 @@
 from rest_framework import viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.exceptions import PermissionDenied
+
+from .tasks import send_booking_confirmation_email
 from .models import Listing, Booking
 from .serializers import ListingSerializer, BookingSerializer
 from drf_yasg.utils import swagger_auto_schema
@@ -65,7 +67,15 @@ class BookingViewSet(viewsets.ModelViewSet):
         listing = serializer.validated_data['listing']
         if not listing.is_active:
             raise PermissionDenied("This listing is not active.")
-        serializer.save(guest=self.request.user, total_price=self.calculate_total_price(listing))
+        
+        # Save the booking
+        booking = serializer.save(
+            guest=self.request.user, 
+            total_price=self.calculate_total_price(listing)
+        )
+        
+        # Trigger email task asynchronously
+        send_booking_confirmation_email.delay(booking.id)
 
     def perform_update(self, serializer):
         """Ensure only the guest can update their booking."""
